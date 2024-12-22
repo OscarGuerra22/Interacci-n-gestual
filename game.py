@@ -70,26 +70,119 @@ font = pygame.font.Font(None, 36)
 
 text_to_show = ""
 time_text_setted = 0
+text_pos = 0,0
 
-def SetText(text):
+def SetText(text, pos):
+  global text_pos
   global text_to_show, time_text_setted
   text_to_show = text
   time_text_setted = pygame.time.get_ticks()
-
+  text_pos = pos
 def RenderText():
   global text_to_show, time_text_setted
   if (text_to_show != ""):
     if ((pygame.time.get_ticks() - time_text_setted) > 1500):
       text_to_show = ""
     text_surface = font.render(text_to_show, True, (0, 0, 0))
-    screen.blit(text_surface, (200, 100))
+    screen.blit(text_surface, text_pos)
 
 def convert_coordinates(point):
   return int(point[0]), screen_h - int(point[1])
 
+def convert_vertices_to_pygame(vertices, body):
+    absolute_vertices = [body.local_to_world(vertex) for vertex in vertices]
+    return absolute_vertices
+
+
 # Configuración de Pymunk
 space = pymunk.Space()
 space.gravity = (0, 0)  # Sin gravedad, porque no queremos que las balas caigan
+
+class KillerObstacle:
+  def __init__(self, position1, position2, radius):
+    self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+    self.positions = [pymunk.Vec2d(*position1), pymunk.Vec2d(*position2)]
+    self.body.position = position1
+    self.shape = pymunk.Circle(self.body, radius)
+    self.shape.color = pygame.Color("black")
+    self.shape.collision_type = 5
+    self.active = False
+    self.velocity = (self.positions[1] - self.positions[0]).normalized() * 5 
+  def Activate(self):
+    self.active = True
+    space.add(self.body, self.shape)
+  def Disable(self):
+    self.active = False
+    space.remove(self.body, self.shape)
+  def is_near(self, position, threshold=5):
+    return (self.body.position - position).length < threshold
+  def Render(self):
+    if self.active:
+      if self.is_near(self.positions[0]):
+          self.velocity = (self.positions[1] - self.positions[0]).normalized() * 5
+      elif self.is_near(self.positions[1]):
+          self.velocity = (self.positions[0] - self.positions[1]).normalized() * 5
+      self.body.position += self.velocity
+      pygame.draw.circle(screen, self.shape.color, (int(self.body.position.x), int(self.body.position.y)), int(self.shape.radius))
+
+class OrbitObstacle:
+  def __init__(self, position, radius):
+    self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
+    self.body.position = position
+    self.shape = pymunk.Circle(self.body, radius)
+    self.shape.color = pygame.Color("purple")
+    self.shape.collision_type = 4
+    self.shape.density = 1
+    self.active = False
+  def Activate(self):
+    self.active = True
+    space.add(self.body, self.shape)
+  def Disable(self):
+    self.active = False
+    space.remove(self.body, self.shape)
+  def Render(self):
+    if (self.active):
+      pygame.draw.circle(screen, self.shape.color, self.body.position, self.shape.radius)
+
+class StickyObstacle:
+  def __init__(self, position, vertices):
+    self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
+    self.body.position = position
+    self.shape = pymunk.Poly(self.body, vertices)
+    self.shape.color = pygame.Color("green")
+    self.shape.collision_type = 3
+    self.shape.density = 1
+    self.active = False
+  def Activate(self):
+    self.active = True
+    space.add(self.body, self.shape)
+  def Disable(self):
+    self.active = False
+    space.remove(self.body, self.shape)
+  def Render(self):
+    if (self.active):
+      vertices = convert_vertices_to_pygame(self.shape.get_vertices(), self.body)
+      pygame.draw.polygon(screen, self.shape.color, vertices)
+
+class BasicObstacle:
+  def __init__(self, position, vertices):
+    self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
+    self.body.position = position
+    self.shape = pymunk.Poly(self.body, vertices)
+    self.shape.color = pygame.Color("blue")
+    self.shape.elasticity = 1
+    self.shape.density = 1
+    self.active = False
+  def Activate(self):
+    self.active = True
+    space.add(self.body, self.shape)
+  def Disable(self):
+    self.active = False
+    space.remove(self.body, self.shape)
+  def Render(self):
+    if (self.active):
+      vertices = convert_vertices_to_pygame(self.shape.get_vertices(), self.body)
+      pygame.draw.polygon(screen, self.shape.color, vertices)
 
 class Objective:
   def __init__(self, position):
@@ -101,17 +194,20 @@ class Objective:
     self.shape.collision_type = 2
     space.add(self.body, self.shape)
   def Render(self):
-    pygame.draw.circle(screen,self.shape.color,self.body.position,self.shape.radius)
+    pygame.draw.circle(screen, self.shape.color, self.body.position, self.shape.radius)
 
 class Bullet:
-  def __init__(self, starting_pos, rotation):
+  def __init__(self, starting_pos, rotation, id):
     self.body = pymunk.Body()
     self.body.position = starting_pos
     self.shape = pymunk.Circle(self.body, 5)
     self.shape.color = pygame.Color("red")
     self.shape.density = 1
-    self.shape.friction = 0.1
+    self.shape.friction = 1
     self.shape.collision_type = 1
+    self.shape.elasticity = 1
+    self.shape.id = id
+    self.id = id
     space.add(self.body, self.shape)
     impulse = 50000 * pymunk.vec2d.Vec2d(1,0)
     impulse = impulse.rotated(-rotation)
@@ -137,7 +233,8 @@ class SpaceShip:
     self.rotated_img = self.base_img
     self.need_to_reload = True
     self.bullets = []
-  def UpdatePositionAndRotation(self, index_finger_mcp, middle_finger_mcp, index_finger_tip, middle_finger_tip):
+    self.last_id = 0
+  def UpdateParams(self, index_finger_mcp, middle_finger_mcp, index_finger_tip, middle_finger_tip):
     # Rotación y disparo        
     index_tip = np.array((index_finger_tip.x, index_finger_tip.y))
     middle_tip = np.array((middle_finger_tip.x, middle_finger_tip.y))
@@ -162,12 +259,78 @@ class SpaceShip:
     for bullet in self.bullets:
         bullet.Render()
   def Shoot(self):
-    self.bullets.append(Bullet(self.body.position, self.body.angle))
+    self.bullets.append(Bullet(self.body.position, self.body.angle, self.last_id))
+    self.last_id += 1
+  def ClearBullets(self):
+    self.bullets.clear()
+  def KillBullet(self, id):
+    self.bullets = [bullet for bullet in self.bullets if bullet.id != id]
+
+# Creación de objetos
+objective = Objective((200, 240))
+sship = SpaceShip()
+level_1 = []
+level_2 = [
+  OrbitObstacle((250, 100), 30),
+  BasicObstacle((250, 400), [(-100,-20), (100, 20), (-100,20), (100, -20)]),
+  BasicObstacle((330, 250), [(-20,-130), (20, 130), (-20, 130), (20, -130)])
+]
+level_3 = [
+  BasicObstacle((250, 240), [(-15,-15), (15, 15), (-15,15), (15, -15)]),
+  BasicObstacle((250, 190), [(-100,-20), (100, 20), (-100,20), (100, -20)]),
+  StickyObstacle((250, 290), [(-100,-20), (100, 20), (-100,20), (100, -20)])
+]
+level_4 = [
+  KillerObstacle((220,350), (320, 120), 15),
+  BasicObstacle((182, 240), [(-1,18), (-1, -20), (1, 18), (1, -20)]),
+  BasicObstacle((218, 240), [(-1,18), (-1, -20), (1, 18), (1, -20)]),
+  BasicObstacle((200, 259), [(19,-1), (-19, -1), (19, 1), (-19, 1)]),
+  BasicObstacle((240, 140), [(0,-20), (20, 20), (-20,25)]),
+  BasicObstacle((280, 340), [(0,20), (20, -20), (-20,-25)]),
+  BasicObstacle((340, 170), [(0,-20), (20, 20), (-20,25)]),
+]
+current_level = -1
+levels = [level_1, level_2, level_3, level_4]
+
+def NextLevel():
+  global current_level
+  if current_level >= 0:
+    for element in levels[current_level]:
+      element.Disable()
+  current_level += 1
+  for element in levels[current_level]:
+    element.Activate()
+  
+NextLevel()
 
 # Colisiones
+links = []
 # Funciones
 def AdvanceRound(arbiter,space,data):
-  SetText("Avanzas de ronda")
+  if (current_level < (len(levels) - 1)):
+    for link in links:
+      space.remove(link)  # Elimina cada joint del espacio
+    links.clear()
+    SetText("Avanzas de ronda", (200, 100))
+    NextLevel()
+    sship.ClearBullets()
+  else: 
+    SetText("Has ganado",  (250, 100))
+  return False
+
+def StickToObstacle(arbiter, space, data):
+    bullet_body = arbiter.shapes[0].body
+    obstacle_body = arbiter.shapes[1].body
+    joint = pymunk.PinJoint(bullet_body, obstacle_body)
+    space.add(joint)
+    links.append(joint)
+def StopBullet(arbiter, space, data):
+  bullet_body = arbiter.shapes[0].body
+  bullet_body.velocity = 0,0
+  return True
+
+def KillBullet(arbiter, space, data):
+  sship.KillBullet(arbiter.shapes[0].id)
   return False
 
 # Handlers
@@ -175,14 +338,23 @@ def AdvanceRound(arbiter,space,data):
 bullet_objective_hanlder = space.add_collision_handler(1,2)
 bullet_objective_hanlder.begin = AdvanceRound
 
-# Creación de objetos
-objective = Objective((200, 240))
-sship = SpaceShip()
+bullet_sticky_obs_hanlder = space.add_collision_handler(1,3)
+bullet_sticky_obs_hanlder.begin = StopBullet
+bullet_sticky_obs_hanlder.separate = StickToObstacle
+
+bullet_orbit_handler = space.add_collision_handler(1,4)
+bullet_orbit_handler.separate = StickToObstacle
+
+bullet_destroyer_handler = space.add_collision_handler(1,5)
+bullet_destroyer_handler.begin = KillBullet
 
 def RenderAll():
   objective.Render()
   sship.Render()
+  for obstacle in levels[current_level]:
+    obstacle.Render()
   RenderText()
+
 
 options = HandLandmarkerOptions(
     base_options=BaseOptions(model_asset_path=model_path),
@@ -217,7 +389,7 @@ with HandLandmarker.create_from_options(options) as landmarker:
         middle_finger_mcp = landmarks[9]
         index_finger_tip = landmarks[8]
         middle_finger_tip = landmarks[12]
-        sship.UpdatePositionAndRotation(index_finger_mcp, middle_finger_mcp, index_finger_tip, middle_finger_tip)
+        sship.UpdateParams(index_finger_mcp, middle_finger_mcp, index_finger_tip, middle_finger_tip)
         
     # Avanzar la simulación de Pymunk
     space.step(1 / 60.0)

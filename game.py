@@ -66,7 +66,10 @@ screen_h = 480
 screen = pygame.display.set_mode((screen_w, screen_h))
 clock = pygame.time.Clock()
 
-font = pygame.font.Font(None, 36)
+background = pygame.image.load("background.jpg")
+background = pygame.transform.scale(background, (screen_w, screen_h))
+
+font = pygame.font.Font("fuente.TTF", 26)
 
 text_to_show = ""
 time_text_setted = 0
@@ -83,7 +86,7 @@ def RenderText():
   if (text_to_show != ""):
     if ((pygame.time.get_ticks() - time_text_setted) > 1500):
       text_to_show = ""
-    text_surface = font.render(text_to_show, True, (0, 0, 0))
+    text_surface = font.render(text_to_show, True, (81, 246, 224))
     screen.blit(text_surface, text_pos)
 
 def convert_coordinates(point):
@@ -104,7 +107,7 @@ class KillerObstacle:
     self.positions = [pymunk.Vec2d(*position1), pymunk.Vec2d(*position2)]
     self.body.position = position1
     self.shape = pymunk.Circle(self.body, radius)
-    self.shape.color = pygame.Color("black")
+    self.shape.color =  (200, 0, 255)
     self.shape.collision_type = 5
     self.active = False
     self.velocity = (self.positions[1] - self.positions[0]).normalized() * 5 
@@ -130,7 +133,8 @@ class OrbitObstacle:
     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
     self.body.position = position
     self.shape = pymunk.Circle(self.body, radius)
-    self.shape.color = pygame.Color("purple")
+    self.base_img = pygame.image.load("mars.png")
+    self.base_img = pygame.transform.scale(self.base_img,(self.shape.radius*2, self.shape.radius*2 ))
     self.shape.collision_type = 4
     self.shape.density = 1
     self.active = False
@@ -142,14 +146,14 @@ class OrbitObstacle:
     space.remove(self.body, self.shape)
   def Render(self):
     if (self.active):
-      pygame.draw.circle(screen, self.shape.color, self.body.position, self.shape.radius)
+      screen.blit(self.base_img, (int(self.body.position.x) - self.shape.radius, int(self.body.position.y) - self.shape.radius))
 
 class StickyObstacle:
   def __init__(self, position, vertices):
     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
     self.body.position = position
     self.shape = pymunk.Poly(self.body, vertices)
-    self.shape.color = pygame.Color("green")
+    self.shape.color = (116, 205, 38) # Valores RGB: verde grisaceo
     self.shape.collision_type = 3
     self.shape.density = 1
     self.active = False
@@ -169,7 +173,7 @@ class BasicObstacle:
     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
     self.body.position = position
     self.shape = pymunk.Poly(self.body, vertices)
-    self.shape.color = pygame.Color("blue")
+    self.shape.color = (102, 86, 68) # Valores RGB: Gris - marrón
     self.shape.elasticity = 1
     self.shape.density = 1
     self.active = False
@@ -189,19 +193,20 @@ class Objective:
     self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
     self.body.position = position
     self.shape = pymunk.Circle(self.body, 15)
-    self.shape.color = pygame.Color("yellow")
+    self.base_img = pygame.image.load("diana.png")
+    self.base_img = pygame.transform.scale(self.base_img,(self.shape.radius*2, self.shape.radius*2 ))
     self.shape.sensor = True
     self.shape.collision_type = 2
     space.add(self.body, self.shape)
   def Render(self):
-    pygame.draw.circle(screen, self.shape.color, self.body.position, self.shape.radius)
+    screen.blit(self.base_img, (int(self.body.position.x) - self.shape.radius, int(self.body.position.y) - self.shape.radius))
 
 class Bullet:
   def __init__(self, starting_pos, rotation, id):
     self.body = pymunk.Body()
     self.body.position = starting_pos
     self.shape = pymunk.Circle(self.body, 5)
-    self.shape.color = pygame.Color("red")
+    self.shape.color = (255, 0, 111) # Valores RGB: Rojo - rosado
     self.shape.density = 1
     self.shape.friction = 1
     self.shape.collision_type = 1
@@ -225,12 +230,12 @@ class SpaceShip:
   def __init__(self):
     self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     self.body.position = (400, 240)  # Posición inicial
-    self.shape = pymunk.Circle(self.body, 20)
+    self.shape = pymunk.Circle(self.body, 30)
     space.add(self.body, self.shape)
-    self.base_img = pygame.image.load("spaceship.png")
+    self.base_img = pygame.image.load("cohete_espacial.png")
     self.base_img = pygame.transform.scale(self.base_img,(self.shape.radius*2, self.shape.radius*2 ))
     self.base_img = pygame.transform.rotate(self.base_img,-90)
-    self.rotated_img = self.base_img
+    self.rotated_img = pygame.transform.rotate(self.base_img,-180)
     self.need_to_reload = True
     self.bullets = []
     self.last_id = 0
@@ -311,11 +316,11 @@ def AdvanceRound(arbiter,space,data):
     for link in links:
       space.remove(link)  # Elimina cada joint del espacio
     links.clear()
-    SetText("Avanzas de ronda", (200, 100))
+    SetText("Avanzas de ronda", (170, 100))
     NextLevel()
     sship.ClearBullets()
   else: 
-    SetText("Has ganado",  (250, 100))
+    SetText("Has ganado",  (230, 100))
   return False
 
 def StickToObstacle(arbiter, space, data):
@@ -349,6 +354,7 @@ bullet_destroyer_handler = space.add_collision_handler(1,5)
 bullet_destroyer_handler.begin = KillBullet
 
 def RenderAll():
+  screen.blit(background, (0, 0))
   objective.Render()
   sship.Render()
   for obstacle in levels[current_level]:
